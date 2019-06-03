@@ -3,8 +3,9 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 #include <cmath>
-
+#include <chrono>
 #include <pow.h>
+#include <util.h>
 
 #include <arith_uint256.h>
 #include <bignum.h>
@@ -107,49 +108,93 @@ unsigned int KimotoGravityWell(const CBlockIndex* pindexLast,
     double                                EventHorizonDeviation;
     double                                EventHorizonDeviationFast;
     double                                EventHorizonDeviationSlow;
+    double timeSpentReading = double(0);
+    double timeSpentCalc1 = double(0);
+    double timeSpentCalc2 = double(0);
+    double timeSpentCalc3 = double(0);
+    double timeSpentCalc4 = double(0);
 
-    if (BlockLastSolved == NULL || BlockLastSolved->nHeight == 0 || (uint64_t)BlockLastSolved->nHeight < PastBlocksMin) { return UintToArith256(params.powLimit).GetCompact(); }
+    if (BlockLastSolved == NULL || BlockLastSolved->nHeight == 0 || (uint64_t)BlockLastSolved->nHeight < PastBlocksMin) { 
+        return UintToArith256(params.powLimit).GetCompact(); 
+    }
 
-        for (unsigned int i = 1; BlockReading && BlockReading->nHeight > 0; i++) {
-            if (PastBlocksMax > 0 && i > PastBlocksMax) { break; }
-            PastBlocksMass++;
-
-            if (i == 1)        { PastDifficultyAverage.SetCompact(BlockReading->nBits); }
-            else                { PastDifficultyAverage = ((CBigNum().SetCompact(BlockReading->nBits) - PastDifficultyAveragePrev) / i) + PastDifficultyAveragePrev; }
-            PastDifficultyAveragePrev = PastDifficultyAverage;
-
-            PastRateActualSeconds                        = BlockLastSolved->GetBlockTime() - BlockReading->GetBlockTime();
-            PastRateTargetSeconds                        = TargetBlocksSpacingSeconds * PastBlocksMass;
-            PastRateAdjustmentRatio                        = double(1);
-            if (PastRateActualSeconds < 0) { PastRateActualSeconds = 0; }
-            if (PastRateActualSeconds != 0 && PastRateTargetSeconds != 0) {
-                PastRateAdjustmentRatio                        = double(PastRateTargetSeconds) / double(PastRateActualSeconds);
-            }
-            EventHorizonDeviation                        = 1 + (0.7084 * std::pow((double(PastBlocksMass)/double(144)), -1.228));
-            EventHorizonDeviationFast                = EventHorizonDeviation;
-            EventHorizonDeviationSlow                = 1 / EventHorizonDeviation;
-
-            if (PastBlocksMass >= PastBlocksMin) {
-                    if ((PastRateAdjustmentRatio <= EventHorizonDeviationSlow) || (PastRateAdjustmentRatio >= EventHorizonDeviationFast)) { assert(BlockReading); break; }
-            }
-            if (BlockReading->pprev == NULL || 
-                (!params.testnet && BlockReading->nHeight == 1080000)) // Don't calculate past fork block on mainnet
-            { 
-                    assert(BlockReading); 
-                    break; 
-            }
-            BlockReading = BlockReading->pprev;
+    for (unsigned int i = 1; BlockReading && BlockReading->nHeight > 0; i++) {
+        std::chrono::time_point<std::chrono::high_resolution_clock> start = std::chrono::high_resolution_clock::now();
+        if (PastBlocksMax > 0 && i > PastBlocksMax) { 
+            break; 
         }
+        PastBlocksMass++;
 
-        CBigNum bnNew(PastDifficultyAverage);
+        if (i == 1) { 
+            PastDifficultyAverage.SetCompact(BlockReading->nBits); 
+        } else { 
+            PastDifficultyAverage = ((CBigNum().SetCompact(BlockReading->nBits) - PastDifficultyAveragePrev) / i) + PastDifficultyAveragePrev;
+        }
+        PastDifficultyAveragePrev = PastDifficultyAverage;
+        std::chrono::time_point<std::chrono::high_resolution_clock> finish = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = finish - start;
+        timeSpentCalc1 += elapsed.count();
+
+        start = std::chrono::high_resolution_clock::now();
+        PastRateActualSeconds = BlockLastSolved->GetBlockTime() - BlockReading->GetBlockTime();
+        PastRateTargetSeconds = TargetBlocksSpacingSeconds * PastBlocksMass;
+        PastRateAdjustmentRatio = double(1);
+        if (PastRateActualSeconds < 0) { 
+            PastRateActualSeconds = 0; 
+        }
         if (PastRateActualSeconds != 0 && PastRateTargetSeconds != 0) {
-                bnNew *= PastRateActualSeconds;
-                bnNew /= PastRateTargetSeconds;
+            PastRateAdjustmentRatio = double(PastRateTargetSeconds) / double(PastRateActualSeconds);
         }
+        finish = std::chrono::high_resolution_clock::now();
+        elapsed = finish - start;
+        timeSpentCalc2 += elapsed.count();
 
-        if (bnNew > bnProofOfWorkLimit) {
+        start = std::chrono::high_resolution_clock::now();
+        
+        EventHorizonDeviation = 1 + (0.7084 * std::pow((double(PastBlocksMass)/double(144)), -1.228));
+        EventHorizonDeviationFast = EventHorizonDeviation;
+        EventHorizonDeviationSlow = 1 / EventHorizonDeviation;
+        finish = std::chrono::high_resolution_clock::now();
+        elapsed = finish - start;
+        timeSpentCalc3 += elapsed.count();
+
+        start = std::chrono::high_resolution_clock::now();
+        
+        if (PastBlocksMass >= PastBlocksMin) {
+            if ((PastRateAdjustmentRatio <= EventHorizonDeviationSlow) || 
+                (PastRateAdjustmentRatio >= EventHorizonDeviationFast)) { 
+                assert(BlockReading); 
+                break; 
+            }
+        }
+        if (BlockReading->pprev == NULL || 
+            (!params.testnet && BlockReading->nHeight == 1080000)) // Don't calculate past fork block on mainnet
+        { 
+                assert(BlockReading); 
+                break; 
+        }
+        finish = std::chrono::high_resolution_clock::now();
+        elapsed = finish - start;
+        timeSpentCalc4 += elapsed.count();
+
+        start = std::chrono::high_resolution_clock::now();
+        BlockReading = BlockReading->pprev;
+        finish = std::chrono::high_resolution_clock::now();
+        elapsed = finish - start;
+        timeSpentReading += elapsed.count();
+    }
+
+    CBigNum bnNew(PastDifficultyAverage);
+    if (PastRateActualSeconds != 0 && PastRateTargetSeconds != 0) {
+            bnNew *= PastRateActualSeconds;
+            bnNew /= PastRateTargetSeconds;
+    }
+
+    if (bnNew > bnProofOfWorkLimit) {
 	    bnNew = bnProofOfWorkLimit;
 	}
+
+    LogPrintf("Finished KGW for Block %d - Reading: %0.4fs - Calculating: [%0.4fs] [%0.4fs] [%0.4fs] [%0.4fs] \n", pindexLast->nHeight, timeSpentReading, timeSpentCalc1, timeSpentCalc2, timeSpentCalc3, timeSpentCalc4);
 
     return bnNew.GetCompact();
 }
