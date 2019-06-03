@@ -108,11 +108,9 @@ unsigned int KimotoGravityWell(const CBlockIndex* pindexLast,
     double                                EventHorizonDeviation;
     double                                EventHorizonDeviationFast;
     double                                EventHorizonDeviationSlow;
-    double timeSpentReading = double(0);
     double timeSpentCalc1 = double(0);
     double timeSpentCalc2 = double(0);
     double timeSpentCalc3 = double(0);
-    double timeSpentCalc4 = double(0);
 
     if (BlockLastSolved == NULL || BlockLastSolved->nHeight == 0 || (uint64_t)BlockLastSolved->nHeight < PastBlocksMin) { 
         return UintToArith256(params.powLimit).GetCompact(); 
@@ -124,18 +122,25 @@ unsigned int KimotoGravityWell(const CBlockIndex* pindexLast,
             break; 
         }
         PastBlocksMass++;
-
-        if (i == 1) { 
-            PastDifficultyAverage.SetCompact(BlockReading->nBits); 
-        } else { 
-            PastDifficultyAverage = ((CBigNum().SetCompact(BlockReading->nBits) - PastDifficultyAveragePrev) / i) + PastDifficultyAveragePrev;
-        }
-        PastDifficultyAveragePrev = PastDifficultyAverage;
-        std::chrono::time_point<std::chrono::high_resolution_clock> finish = std::chrono::high_resolution_clock::now();
+    std::chrono::time_point<std::chrono::high_resolution_clock> finish = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed = finish - start;
         timeSpentCalc1 += elapsed.count();
 
-        start = std::chrono::high_resolution_clock::now();
+       
+        if (i == 1) { 
+            start = std::chrono::high_resolution_clock::now();
+            PastDifficultyAverage.SetCompact(BlockReading->nBits); 
+            finish = std::chrono::high_resolution_clock::now();
+            elapsed = finish - start;
+            timeSpentCalc2 += elapsed.count();
+        } else { 
+            start = std::chrono::high_resolution_clock::now();
+            PastDifficultyAverage = ((CBigNum().SetCompact(BlockReading->nBits) - PastDifficultyAveragePrev) / i) + PastDifficultyAveragePrev;
+            finish = std::chrono::high_resolution_clock::now();
+            elapsed = finish - start;
+            timeSpentCalc3 += elapsed.count();
+        }
+        PastDifficultyAveragePrev = PastDifficultyAverage;
         PastRateActualSeconds = BlockLastSolved->GetBlockTime() - BlockReading->GetBlockTime();
         PastRateTargetSeconds = TargetBlocksSpacingSeconds * PastBlocksMass;
         PastRateAdjustmentRatio = double(1);
@@ -145,21 +150,9 @@ unsigned int KimotoGravityWell(const CBlockIndex* pindexLast,
         if (PastRateActualSeconds != 0 && PastRateTargetSeconds != 0) {
             PastRateAdjustmentRatio = double(PastRateTargetSeconds) / double(PastRateActualSeconds);
         }
-        finish = std::chrono::high_resolution_clock::now();
-        elapsed = finish - start;
-        timeSpentCalc2 += elapsed.count();
-
-        start = std::chrono::high_resolution_clock::now();
-        
         EventHorizonDeviation = 1 + (0.7084 * std::pow((double(PastBlocksMass)/double(144)), -1.228));
         EventHorizonDeviationFast = EventHorizonDeviation;
         EventHorizonDeviationSlow = 1 / EventHorizonDeviation;
-        finish = std::chrono::high_resolution_clock::now();
-        elapsed = finish - start;
-        timeSpentCalc3 += elapsed.count();
-
-        start = std::chrono::high_resolution_clock::now();
-        
         if (PastBlocksMass >= PastBlocksMin) {
             if ((PastRateAdjustmentRatio <= EventHorizonDeviationSlow) || 
                 (PastRateAdjustmentRatio >= EventHorizonDeviationFast)) { 
@@ -173,15 +166,7 @@ unsigned int KimotoGravityWell(const CBlockIndex* pindexLast,
                 assert(BlockReading); 
                 break; 
         }
-        finish = std::chrono::high_resolution_clock::now();
-        elapsed = finish - start;
-        timeSpentCalc4 += elapsed.count();
-
-        start = std::chrono::high_resolution_clock::now();
         BlockReading = BlockReading->pprev;
-        finish = std::chrono::high_resolution_clock::now();
-        elapsed = finish - start;
-        timeSpentReading += elapsed.count();
     }
 
     CBigNum bnNew(PastDifficultyAverage);
@@ -194,7 +179,7 @@ unsigned int KimotoGravityWell(const CBlockIndex* pindexLast,
 	    bnNew = bnProofOfWorkLimit;
 	}
 
-    LogPrintf("Finished KGW for Block %d - Reading: %0.4fs - Calculating: [%0.4fs] [%0.4fs] [%0.4fs] [%0.4fs] \n", pindexLast->nHeight, timeSpentReading, timeSpentCalc1, timeSpentCalc2, timeSpentCalc3, timeSpentCalc4);
+    LogPrintf("Finished KGW for Block %d - Calculating: [%0.4fs] [%0.4fs] [%0.4fs]\n", pindexLast->nHeight, timeSpentCalc1, timeSpentCalc2, timeSpentCalc3);
 
     return bnNew.GetCompact();
 }
